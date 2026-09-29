@@ -121,7 +121,7 @@ def load_remote_artifact(repository, commit_sha, token):
             detail = response.text
         raise RuntimeError(f"No se pudo descargar el artefacto ({response.status_code}): {detail}")
     artifact = joblib.load(io.BytesIO(response.content))
-    if artifact.get("version") != 1:
+    if artifact.get("version") not in {1, 2}:
         raise RuntimeError("La versión del artefacto no es compatible con esta app.")
     return artifact
 
@@ -342,25 +342,40 @@ if page == "Consultar similitudes":
             profile_name = "goalkeeper" if position == "GK" else "field"
             profile = artifact["profiles"][profile_name]
             profile_records = profile["records"].reset_index(drop=True)
-            available_chart_features = (
+            available_chart_features = profile.get("visual_features", profile["features"])
+            default_chart_features = (
                 GOALKEEPER_CHART_FEATURES if position == "GK" else FIELD_CHART_FEATURES
             )
+            default_chart_features = [
+                feature for feature in default_chart_features if feature in available_chart_features
+            ]
             selected_chart_features = st.multiselect(
                 "Métricas que quieres comparar en los gráficos",
                 options=available_chart_features,
-                default=available_chart_features,
-                format_func=lambda feature: FEATURE_LABELS[feature],
+                default=default_chart_features,
+                format_func=lambda feature: FEATURE_LABELS.get(
+                    feature,
+                    feature.removesuffix("_p90").replace("_", " ").capitalize(),
+                ),
                 key=f"chart_metrics_{position}",
-                help="La selección se aplica al mapa de calor y al gráfico de comparación individual.",
+                help="Puedes elegir cualquier métrica p90 del CSV. La selección se aplica a ambos gráficos.",
             )
             if not selected_chart_features:
                 st.info("Selecciona al menos una métrica para mostrar los gráficos.")
             else:
                 chart_features = selected_chart_features
-                raw_values = pd.DataFrame(
-                    profile["scaler"].inverse_transform(profile["matrix"]),
-                    columns=profile["features"],
-                )
+                if "visual_values" in profile:
+                    raw_values = pd.DataFrame(
+                        profile["visual_values"],
+                        columns=available_chart_features,
+                    )
+                else:
+                    # Compatibilidad temporal con artefactos anteriores a la
+                    # incorporación de todas las métricas p90 para gráficos.
+                    raw_values = pd.DataFrame(
+                        profile["scaler"].inverse_transform(profile["matrix"]),
+                        columns=profile["features"],
+                    )
                 position_mask = profile_records["position"].eq(position)
                 position_percentiles = (
                     raw_values.loc[position_mask, chart_features]
