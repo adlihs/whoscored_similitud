@@ -216,7 +216,29 @@ if page == "Consultar similitudes":
         )
     n_results = st.slider("Cantidad de resultados", min_value=1, max_value=50, value=10)
 
-    if st.button("Buscar similitudes", type="primary", disabled=not players):
+    search_col, help_col = st.columns([0.92, 0.08], vertical_alignment="bottom")
+    with search_col:
+        run_search = st.button("Buscar similitudes", type="primary", disabled=not players)
+    with help_col:
+        st.markdown(
+            "<style>.st-key-results_similarity_help [data-testid='stIconMaterial'] "
+            "{font-size: 1.35rem !important;}</style>",
+            unsafe_allow_html=True,
+        )
+        st.button(
+            " ",
+            key="results_similarity_help",
+            icon=":material/info:",
+            type="tertiary",
+            help=(
+                "**Distancia:** mide qué tan diferentes son las estadísticas del jugador y las del candidato. "
+                "Un valor menor significa un perfil más cercano; por ejemplo, 1.2 es más cercano que 2.7. "
+                "\n\n**Índice de similitud:** resume esa cercanía en una escala de 0 a 1. Un valor mayor indica "
+                "más similitud. No es un porcentaje ni una probabilidad de que el jugador rinda igual o sea mejor."
+            ),
+        )
+
+    if run_search:
         try:
             results = find_similar(
                 artifact,
@@ -233,22 +255,7 @@ if page == "Consultar similitudes":
             if results.empty:
                 st.info("No hay candidatos con esos filtros. Amplía las ligas o ajusta edad/minutos.")
             else:
-                title_col, help_col = st.columns([0.94, 0.06], vertical_alignment="center")
-                with title_col:
-                    st.markdown(f"### Resultados para **{player}** · {team} · {league} · {position}")
-                with help_col:
-                    st.button(
-                        " ",
-                        key="results_similarity_help",
-                        icon=":material/info:",
-                        type="tertiary",
-                        help=(
-                            "**Distancia:** mide qué tan diferentes son las estadísticas del jugador y las del candidato. "
-                            "Un valor menor significa un perfil más cercano; por ejemplo, 1.2 es más cercano que 2.7. "
-                            "\n\n**Índice de similitud:** resume esa cercanía en una escala de 0 a 1. Un valor mayor indica "
-                            "más similitud. No es un porcentaje ni una probabilidad de que el jugador rinda igual o sea mejor."
-                        ),
-                    )
+                st.markdown(f"### Resultados para **{player}** · {team} · {league} · {position}")
                 shown = results[
                     ["player_name", "team_name", "league_folder", "position", "age", "played_minutes", "distance", "similarity"]
                 ].rename(
