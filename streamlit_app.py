@@ -10,6 +10,7 @@ import tempfile
 from pathlib import Path
 
 import pandas as pd
+import plotly.graph_objects as go
 import requests
 import streamlit as st
 import joblib
@@ -25,6 +26,35 @@ from similarity_model import (
 
 GITHUB_API = "https://api.github.com"
 GITHUB_TIMEOUT = 60
+
+FIELD_CHART_FEATURES = [
+    "shotsTotal_p90", "passesKey_p90", "dribblesWon_p90", "passesTotal_p90",
+    "interceptions_p90", "tackleSuccessful_p90", "aerialsWon_p90",
+    "clearances_p90", "touches_p90", "errors_p90",
+]
+GOALKEEPER_CHART_FEATURES = [
+    "totalSaves_p90", "collected_p90", "claimsHigh_p90", "parriedDanger_p90",
+    "parriedSafe_p90", "clearances_p90", "aerialsWon_p90",
+    "passesAccurate_p90", "touches_p90", "errors_p90",
+]
+FEATURE_LABELS = {
+    "shotsTotal_p90": "Tiros",
+    "passesKey_p90": "Pases clave",
+    "dribblesWon_p90": "Regates completados",
+    "passesTotal_p90": "Pases",
+    "interceptions_p90": "Intercepciones",
+    "tackleSuccessful_p90": "Entradas exitosas",
+    "aerialsWon_p90": "Duelos aéreos ganados",
+    "clearances_p90": "Despejes",
+    "touches_p90": "Toques",
+    "errors_p90": "Errores",
+    "totalSaves_p90": "Atajadas",
+    "collected_p90": "Balones recogidos",
+    "claimsHigh_p90": "Balones aéreos atrapados",
+    "parriedDanger_p90": "Despejes ante peligro",
+    "parriedSafe_p90": "Despejes seguros",
+    "passesAccurate_p90": "Pases acertados",
+}
 
 
 def github_settings():
@@ -307,6 +337,145 @@ if page == "Consultar similitudes":
                 hide_index=True,
             )
             st.caption("El índice ordena los resultados; no es una probabilidad. Se comparan jugadores de la misma posición.")
+
+            st.subheader("Comparación visual de perfiles")
+            profile_name = "goalkeeper" if position == "GK" else "field"
+            profile = artifact["profiles"][profile_name]
+            profile_records = profile["records"].reset_index(drop=True)
+            chart_features = (
+                GOALKEEPER_CHART_FEATURES if position == "GK" else FIELD_CHART_FEATURES
+            )
+            raw_values = pd.DataFrame(
+                profile["scaler"].inverse_transform(profile["matrix"]),
+                columns=profile["features"],
+            )
+            position_mask = profile_records["position"].eq(position)
+            position_percentiles = (
+                raw_values.loc[position_mask, chart_features]
+                .rank(pct=True, method="average")
+                .mul(100)
+            )
+
+            target_rows = profile_records[
+                profile_records["league_folder"].astype(str).eq(str(league))
+                & profile_records["team_name"].astype(str).eq(str(team))
+                & profile_records["position"].eq(position)
+                & profile_records["player_name"].astype(str).eq(str(player))
+            ]
+            identity_to_index = {
+                (str(row.league_folder), str(row.team_id), str(row.player_id)): index
+                for index, row in enumerate(profile_records.itertuples(index=False))
+            }
+            chart_indices = [int(target_rows.index[0])]
+            for result_row in results.itertuples(index=False):
+                result_key = (
+                    str(result_row.league_folder),
+                    str(result_row.team_id),
+                    str(result_row.player_id),
+                )
+                if result_key in identity_to_index:
+                    chart_indices.append(identity_to_index[result_key])
+
+            def player_label(index, reference=False):
+                row = profile_records.iloc[index]
+                label = f"{row['player_name']} — {row['team_name']} ({row['league_folder']})"
+                return f"{label} · Referencia" if reference else label
+
+            labels = [player_label(chart_indices[0], reference=True)] + [
+                player_label(index) for index in chart_indices[1:]
+            ]
+            selected_percentiles = position_percentiles.reindex(chart_indices)
+            selected_raw = raw_values.loc[chart_indices, chart_features]
+            metric_labels = [FEATURE_LABELS[feature] for feature in chart_features]
+
+            st.markdown("#### Mapa de calor: referencia y resultados")
+            st.caption(
+                "El color muestra el percentil de cada métrica entre jugadores de la misma posición. "
+                "Pasa el cursor para ver el valor por 90 minutos. Un percentil alto significa más acciones de esa métrica, "
+                "no necesariamente mejor rendimiento (por ejemplo, en errores)."
+            )
+            heatmap = go.Figure(
+                go.Heatmap(
+                    z=selected_percentiles.to_numpy(),
+                    x=metric_labels,
+                    y=labels,
+                    customdata=selected_raw.to_numpy(),
+                    colorscale="Viridis",
+                    zmin=0,
+                    zmax=100,
+                    colorbar={"title": "Percentil"},
+                    hovertemplate=(
+                        "<b>%{y}</b><br>Métrica: %{x}<br>Percentil: %{z:.0f}<br>"
+                        "Valor: %{customdata:.2f} por 90 min<extra></extra>"
+                    ),
+                )
+            )
+            heatmap.update_layout(
+                height=max(360, 42 * len(labels) + 130),
+                xaxis_title="Métrica",
+                yaxis_title="Jugador",
+                margin={"l": 20, "r": 20, "t": 25, "b": 100},
+            )
+            st.plotly_chart(heatmap, use_container_width=True, key="player_similarity_heatmap")
+
+            st.markdown("#### Comparar con un resultado")
+            comparison_names = labels[1:]
+            if comparison_names:
+                comparison_label = st.selectbox(
+                    "Jugador para comparar con la referencia",
+                    comparison_names,
+                    key="similarity_player_comparison",
+                )
+                comparison_row = labels.index(comparison_label)
+                reference_percentiles = selected_percentiles.iloc[0].to_numpy()
+                candidate_percentiles = selected_percentiles.iloc[comparison_row].to_numpy()
+                reference_raw = selected_raw.iloc[0].to_numpy()
+                candidate_raw = selected_raw.iloc[comparison_row].to_numpy()
+
+                dumbbell = go.Figure()
+                for metric, ref_value, candidate_value in zip(
+                    metric_labels, reference_percentiles, candidate_percentiles
+                ):
+                    dumbbell.add_trace(
+                        go.Scatter(
+                            x=[ref_value, candidate_value],
+                            y=[metric, metric],
+                            mode="lines",
+                            line={"color": "#9AA0A6", "width": 2},
+                            showlegend=False,
+                            hoverinfo="skip",
+                        )
+                    )
+                dumbbell.add_trace(
+                    go.Scatter(
+                        x=reference_percentiles,
+                        y=metric_labels,
+                        mode="markers",
+                        name=labels[0],
+                        marker={"color": "#2563EB", "size": 11},
+                        customdata=reference_raw,
+                        hovertemplate="Referencia · %{y}<br>Percentil: %{x:.0f}<br>Valor: %{customdata:.2f} por 90 min<extra></extra>",
+                    )
+                )
+                dumbbell.add_trace(
+                    go.Scatter(
+                        x=candidate_percentiles,
+                        y=metric_labels,
+                        mode="markers",
+                        name=comparison_label,
+                        marker={"color": "#F97316", "size": 11},
+                        customdata=candidate_raw,
+                        hovertemplate="Comparador · %{y}<br>Percentil: %{x:.0f}<br>Valor: %{customdata:.2f} por 90 min<extra></extra>",
+                    )
+                )
+                dumbbell.update_layout(
+                    height=400,
+                    xaxis={"title": "Percentil dentro de la posición", "range": [0, 100], "dtick": 20},
+                    yaxis={"title": "Métrica", "autorange": "reversed"},
+                    margin={"l": 20, "r": 20, "t": 25, "b": 50},
+                    legend={"orientation": "h", "y": 1.12},
+                )
+                st.plotly_chart(dumbbell, use_container_width=True, key="player_similarity_dumbbell")
 
     with st.expander("Información del modelo"):
         st.write(f"Apariciones incluidas: {artifact['source_rows']:,}")
