@@ -38,3 +38,7 @@ La distancia ordena los resultados (menor indica mayor cercanía); el índice de
 Desbloquea el módulo con la contraseña de administrador, carga el CSV semanal y pulsa **Reentrenar y publicar modelo**. La app reconstruye ambos perfiles, crea un commit en `model-artifacts` y ofrece descargar una copia `.joblib`. El módulo de consulta detecta y carga esa versión desde GitHub.
 
 La app desplegada debe tener el token en sus secretos. Protege también el acceso general a la app si no quieres que otras personas consulten los datos; solo la publicación del artefacto requiere la contraseña administrativa.
+
+## Ayuda para interpretar resultados
+
+El menú **Ayuda** explica en lenguaje sencillo qué significa cada columna: una distancia más baja representa estadísticas más cercanas; un índice más alto indica mayor similitud. El índice no es un porcentaje ni una probabilidad de rendimiento.
