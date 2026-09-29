@@ -20,7 +20,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import pairwise_distances
 
 
-VERSION = 2
+VERSION = 1
 IDENTITY_COLUMNS = [
     "league_folder", "team_id", "team_name", "player_id", "player_name",
     "position", "age", "played_minutes",
@@ -70,18 +70,11 @@ def train_model(csv_path: str | Path, output_path: str | Path) -> dict[str, Any]
         "field": _valid_features(df.columns, FIELD_FEATURES, "field"),
         "goalkeeper": _valid_features(df.columns, GOALKEEPER_FEATURES, "goalkeeper"),
     }
-    visual_features = [
-        column
-        for column in df.columns
-        if column.endswith("_p90") and pd.api.types.is_numeric_dtype(df[column])
-    ]
-    if not visual_features:
-        raise ValueError("No se encontraron métricas numéricas con sufijo _p90 para los gráficos.")
     # Una fila representa un jugador en una competición. Evita perfiles
     # duplicados accidentales para la misma liga, equipo y jugador.
     df = df.drop_duplicates(["league_folder", "team_id", "player_id"]).copy()
     df["position"] = df["position"].astype(str).str.strip().str.upper()
-    for cols in [*features.values(), visual_features]:
+    for cols in features.values():
         df[cols] = df[cols].replace([np.inf, -np.inf], np.nan)
         df[cols] = df[cols].fillna(df[cols].median()).fillna(0)
 
@@ -91,16 +84,7 @@ def train_model(csv_path: str | Path, output_path: str | Path) -> dict[str, Any]
         records = df.loc[mask, IDENTITY_COLUMNS].reset_index(drop=True)
         scaler = StandardScaler()
         matrix = scaler.fit_transform(df.loc[mask, cols].astype(float))
-        profiles[name] = {
-            "features": cols,
-            "scaler": scaler,
-            "matrix": matrix,
-            "records": records,
-            # Valores crudos separados: todos los p90 disponibles para
-            # visualización, sin alterar las métricas que definen similitud.
-            "visual_features": visual_features,
-            "visual_values": df.loc[mask, visual_features].astype(np.float32).to_numpy(),
-        }
+        profiles[name] = {"features": cols, "scaler": scaler, "matrix": matrix, "records": records}
 
     artifact = {
         "version": VERSION,

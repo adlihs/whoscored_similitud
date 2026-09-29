@@ -41,8 +41,4 @@ La app desplegada debe tener el token en sus secretos. Protege también el acces
 
 ## Ayuda para interpretar resultados
 
-Junto a la tabla de resultados, el icono de información explica qué significan la distancia y el índice de similitud. Una distancia más baja representa estadísticas más cercanas; un índice más alto indica mayor similitud. El índice no es un porcentaje ni una probabilidad de rendimiento.
-
-## Comparación visual
-
-Debajo de la tabla puedes seleccionar cualquiera de las columnas numéricas `_p90` presentes en el CSV; la selección se aplica a ambos gráficos y solo cambia la visualización, no el cálculo de similitud. Se muestra un mapa de calor con el jugador de referencia y los resultados. El color representa el percentil de cada métrica entre jugadores de la misma posición; al pasar el cursor se ve el valor por 90 minutos. También puedes elegir un resultado para compararlo con la referencia en un gráfico de puntos conectados. Un percentil alto indica más acciones de esa métrica, no necesariamente mejor rendimiento.
+Junto a la tabla de resultados, el icono **?** explica qué significan la distancia y el índice de similitud. Una distancia más baja representa estadísticas más cercanas; un índice más alto indica mayor similitud. El índice no es un porcentaje ni una probabilidad de rendimiento.

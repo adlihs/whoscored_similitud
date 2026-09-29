@@ -4,4 +4,3 @@ scikit-learn==1.9.1
 joblib==1.6.0
 streamlit>=1.40,<2.0
 requests>=2.31
-plotly>=5.18
