@@ -169,7 +169,7 @@ settings = github_settings()
 artifact, artifact_sha, artifact_error = read_artifact(settings)
 page = st.sidebar.radio(
     "Módulo",
-    ["Consultar similitudes", "Ayuda", "Reentrenar modelo"],
+    ["Consultar similitudes", "Reentrenar modelo"],
     help="La consulta usa el último artefacto de GitHub. El reentrenamiento publica una nueva versión en la rama model-artifacts.",
 )
 
@@ -233,7 +233,21 @@ if page == "Consultar similitudes":
             if results.empty:
                 st.info("No hay candidatos con esos filtros. Amplía las ligas o ajusta edad/minutos.")
             else:
-                st.markdown(f"### Resultados para **{player}** · {team} · {league} · {position}")
+                title_col, help_col = st.columns([0.94, 0.06], vertical_alignment="center")
+                with title_col:
+                    st.markdown(f"### Resultados para **{player}** · {team} · {league} · {position}")
+                with help_col:
+                    st.button(
+                        "?",
+                        key="results_similarity_help",
+                        type="tertiary",
+                        help=(
+                            "**Distancia:** mide qué tan diferentes son las estadísticas del jugador y las del candidato. "
+                            "Un valor menor significa un perfil más cercano; por ejemplo, 1.2 es más cercano que 2.7. "
+                            "\n\n**Índice de similitud:** resume esa cercanía en una escala de 0 a 1. Un valor mayor indica "
+                            "más similitud. No es un porcentaje ni una probabilidad de que el jugador rinda igual o sea mejor."
+                        ),
+                    )
                 shown = results[
                     ["player_name", "team_name", "league_folder", "position", "age", "played_minutes", "distance", "similarity"]
                 ].rename(
@@ -263,57 +277,6 @@ if page == "Consultar similitudes":
         st.write(f"Métricas de campo: {len(artifact['profiles']['field']['features'])}")
         st.write(f"Métricas de portero: {len(artifact['profiles']['goalkeeper']['features'])}")
         st.write("Los filtros de resultados no requieren reentrenar el modelo.")
-
-
-elif page == "Ayuda":
-    st.header("Ayuda: cómo leer los resultados")
-    st.write(
-        "El modelo compara el perfil estadístico del jugador que elegiste con otros de la misma posición. "
-        "Por ejemplo, compara un lateral con otros laterales usando las acciones registradas por cada 90 minutos. "
-        "Para los porteros usa sus métricas específicas."
-    )
-
-    distance_col, index_col = st.columns(2)
-    with distance_col:
-        st.subheader("Distancia")
-        st.write(
-            "Indica qué tan lejos queda el perfil de otro jugador del perfil de referencia. "
-            "Piensa en ella como la diferencia entre sus estadísticas de juego."
-        )
-        st.markdown(
-            "- **Distancia más baja:** estadísticas más parecidas; el jugador aparece más arriba.\n"
-            "- **Distancia más alta:** estadísticas menos parecidas."
-        )
-        st.info(
-            "Ejemplo: si buscas un mediocampista, alguien con una distancia de 1.2 tiene un perfil más cercano "
-            "que otro con 2.7, según las métricas que usa este modelo."
-        )
-
-    with index_col:
-        st.subheader("Índice de similitud")
-        st.write(
-            "Es otra forma, más fácil de leer, de mostrar esa cercanía. Va de 0 a 1: "
-            "un número más alto significa que los perfiles están más cerca."
-        )
-        st.markdown(
-            "- **Índice más alto:** jugador más parecido al seleccionado.\n"
-            "- **Índice más bajo:** jugador menos parecido."
-        )
-        st.info(
-            "No es un porcentaje de compatibilidad ni una probabilidad de que el jugador rinda igual. "
-            "Por ejemplo, 0.50 no significa “50 % de parecido”."
-        )
-
-    st.subheader("Cómo usar ambas columnas")
-    st.write(
-        "Usa la tabla como una lista de perfiles para explorar: una distancia pequeña y un índice alto señalan "
-        "jugadores cuyas estadísticas se parecen más a las del jugador elegido. Esto no indica quién es mejor "
-        "ni garantiza que encajaría igual en otro equipo; la competición, el sistema táctico y el contexto también influyen."
-    )
-    st.caption(
-        "Los resultados dependen de la posición, las métricas disponibles y los filtros de minutos, edad y ligas. "
-        "Puedes volver a **Consultar similitudes** para cambiar esos criterios."
-    )
 
 
 else:

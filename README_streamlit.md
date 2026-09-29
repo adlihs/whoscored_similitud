@@ -41,4 +41,4 @@ La app desplegada debe tener el token en sus secretos. Protege también el acces
 
 ## Ayuda para interpretar resultados
 
-El menú **Ayuda** explica en lenguaje sencillo qué significa cada columna: una distancia más baja representa estadísticas más cercanas; un índice más alto indica mayor similitud. El índice no es un porcentaje ni una probabilidad de rendimiento.
+Junto a la tabla de resultados, el icono **?** explica qué significan la distancia y el índice de similitud. Una distancia más baja representa estadísticas más cercanas; un índice más alto indica mayor similitud. El índice no es un porcentaje ni una probabilidad de rendimiento.
