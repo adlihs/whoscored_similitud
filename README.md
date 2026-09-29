@@ -1,5 +1,14 @@
 # WhoScored: similitud de jugadores
 
-Flujo inicial de entrenamiento y búsqueda de jugadores similares con scikit-learn. Consulta [README_modelo_similitud.md](README_modelo_similitud.md) para instalación, reentrenamiento semanal y uso desde Streamlit.
+App de Streamlit para consultar jugadores similares y reentrenar/exportar el modelo desde un CSV actualizado.
 
-El modelo exportado en `modelo_jugadores.joblib` fue entrenado con la muestra inicial compartida. Vuelve a generarlo con el CSV actualizado antes de desplegar nuevas semanas.
+## Iniciar
+
+```bash
+python -m pip install -r requirements.txt
+streamlit run streamlit_app.py
+```
+
+Consulta [README_streamlit.md](README_streamlit.md) para el uso de los dos módulos y [README_modelo_similitud.md](README_modelo_similitud.md) para el flujo de entrenamiento y la interfaz Python.
+
+El archivo `modelo_jugadores.joblib` es el artefacto de muestra. La app permite sustituirlo mediante el CSV actualizado.
