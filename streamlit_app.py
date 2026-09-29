@@ -238,6 +238,19 @@ if page == "Consultar similitudes":
             ),
         )
 
+    query_signature = (
+        artifact_sha,
+        str(league),
+        str(team),
+        str(position),
+        str(player),
+        int(min_minutes),
+        int(age_min),
+        int(age_max),
+        tuple(sorted(str(value) for value in result_leagues)),
+        int(n_results),
+    )
+
     if run_search:
         try:
             results = find_similar(
@@ -252,32 +265,48 @@ if page == "Consultar similitudes":
                 result_leagues=result_leagues,
                 n_results=int(n_results),
             )
-            if results.empty:
-                st.info("No hay candidatos con esos filtros. Amplía las ligas o ajusta edad/minutos.")
-            else:
-                st.markdown(f"### Resultados para **{player}** · {team} · {league} · {position}")
-                shown = results[
-                    ["player_name", "team_name", "league_folder", "position", "age", "played_minutes", "distance", "similarity"]
-                ].rename(
-                    columns={
-                        "player_name": "Jugador",
-                        "team_name": "Equipo",
-                        "league_folder": "Liga",
-                        "position": "Posición",
-                        "age": "Edad",
-                        "played_minutes": "Minutos",
-                        "distance": "Distancia (menor = más parecido)",
-                        "similarity": "Índice de similitud",
-                    }
-                )
-                st.dataframe(
-                    shown.style.format({"Distancia (menor = más parecido)": "{:.3f}", "Índice de similitud": "{:.3f}"}),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-                st.caption("El índice ordena los resultados; no es una probabilidad. Se comparan jugadores de la misma posición.")
+            st.session_state["search_results_state"] = {
+                "signature": query_signature,
+                "results": results,
+                "player": player,
+                "team": team,
+                "league": league,
+                "position": position,
+            }
         except ValueError as exc:
+            st.session_state.pop("search_results_state", None)
             st.error(str(exc))
+
+    saved_search = st.session_state.get("search_results_state")
+    if saved_search and saved_search["signature"] == query_signature:
+        results = saved_search["results"]
+        if results.empty:
+            st.info("No hay candidatos con esos filtros. Amplía las ligas o ajusta edad/minutos.")
+        else:
+            st.markdown(
+                f"### Resultados para **{saved_search['player']}** · {saved_search['team']} · "
+                f"{saved_search['league']} · {saved_search['position']}"
+            )
+            shown = results[
+                ["player_name", "team_name", "league_folder", "position", "age", "played_minutes", "distance", "similarity"]
+            ].rename(
+                columns={
+                    "player_name": "Jugador",
+                    "team_name": "Equipo",
+                    "league_folder": "Liga",
+                    "position": "Posición",
+                    "age": "Edad",
+                    "played_minutes": "Minutos",
+                    "distance": "Distancia (menor = más parecido)",
+                    "similarity": "Índice de similitud",
+                }
+            )
+            st.dataframe(
+                shown.style.format({"Distancia (menor = más parecido)": "{:.3f}", "Índice de similitud": "{:.3f}"}),
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.caption("El índice ordena los resultados; no es una probabilidad. Se comparan jugadores de la misma posición.")
 
     with st.expander("Información del modelo"):
         st.write(f"Apariciones incluidas: {artifact['source_rows']:,}")
