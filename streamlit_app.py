@@ -238,8 +238,9 @@ if page == "Consultar similitudes":
                     st.markdown(f"### Resultados para **{player}** · {team} · {league} · {position}")
                 with help_col:
                     st.button(
-                        "?",
+                        " ",
                         key="results_similarity_help",
+                        icon=":material/info:",
                         type="tertiary",
                         help=(
                             "**Distancia:** mide qué tan diferentes son las estadísticas del jugador y las del candidato. "
