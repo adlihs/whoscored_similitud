@@ -2,53 +2,183 @@
 
 from __future__ import annotations
 
+import base64
+import hmac
+import io
 import os
 import tempfile
 from pathlib import Path
 
 import pandas as pd
+import requests
 import streamlit as st
+import joblib
 
 from similarity_model import (
     FIELD_FEATURES,
     GOALKEEPER_FEATURES,
     IDENTITY_COLUMNS,
     find_similar,
-    load_model,
     train_model,
 )
 
 
-APP_DIR = Path(__file__).resolve().parent
-MODEL_PATH = Path(os.environ.get("PLAYER_MODEL_PATH", APP_DIR / "modelo_jugadores.joblib"))
+GITHUB_API = "https://api.github.com"
+GITHUB_TIMEOUT = 60
+
+
+def github_settings():
+    """Load repository coordinates and credentials from Streamlit secrets."""
+    try:
+        config = st.secrets.get("github", {})
+        admin = st.secrets.get("admin", {})
+    except Exception:
+        config, admin = {}, {}
+    return {
+        "repository": config.get("repository", "adlihs/whoscored_similitud"),
+        "model_branch": config.get("model_branch", "model-artifacts"),
+        "token": config.get("token") or os.environ.get("GITHUB_TOKEN"),
+        "admin_password": admin.get("password") or os.environ.get("STREAMLIT_ADMIN_PASSWORD"),
+    }
+
+
+def github_request(method, endpoint, *, token=None, **kwargs):
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    response = requests.request(
+        method,
+        f"{GITHUB_API}{endpoint}",
+        headers=headers,
+        timeout=GITHUB_TIMEOUT,
+        **kwargs,
+    )
+    if not response.ok:
+        try:
+            detail = response.json().get("message", response.text)
+        except ValueError:
+            detail = response.text
+        raise RuntimeError(f"GitHub respondió {response.status_code}: {detail}")
+    return response
+
+
+def latest_model_commit(repository, branch, token):
+    ref = github_request(
+        "GET", f"/repos/{repository}/git/ref/heads/{branch}", token=token
+    ).json()
+    return ref["object"]["sha"]
+
+
+@st.cache_resource(show_spinner="Cargando el modelo más reciente desde GitHub…")
+def load_remote_artifact(repository, commit_sha, token):
+    """Load one immutable artifact revision; commit SHA keys the Streamlit cache."""
+    headers = {"Accept": "application/vnd.github.raw+json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    response = requests.get(
+        f"{GITHUB_API}/repos/{repository}/contents/modelo_jugadores.joblib",
+        params={"ref": commit_sha},
+        headers=headers,
+        timeout=GITHUB_TIMEOUT,
+    )
+    if not response.ok:
+        try:
+            detail = response.json().get("message", response.text)
+        except ValueError:
+            detail = response.text
+        raise RuntimeError(f"No se pudo descargar el artefacto ({response.status_code}): {detail}")
+    artifact = joblib.load(io.BytesIO(response.content))
+    if artifact.get("version") != 1:
+        raise RuntimeError("La versión del artefacto no es compatible con esta app.")
+    return artifact
+
+
+def publish_model_to_github(model_path, repository, branch, token):
+    """Commit the new binary artifact to the dedicated model branch."""
+    if not token:
+        raise RuntimeError("Falta el token de GitHub. Configura [github].token en Streamlit Secrets.")
+    ref = github_request(
+        "GET", f"/repos/{repository}/git/ref/heads/{branch}", token=token
+    ).json()
+    parent_sha = ref["object"]["sha"]
+    parent = github_request(
+        "GET", f"/repos/{repository}/git/commits/{parent_sha}", token=token
+    ).json()
+
+    encoded_model = base64.b64encode(Path(model_path).read_bytes()).decode("ascii")
+    blob = github_request(
+        "POST",
+        f"/repos/{repository}/git/blobs",
+        token=token,
+        json={"content": encoded_model, "encoding": "base64"},
+    ).json()
+    tree = github_request(
+        "POST",
+        f"/repos/{repository}/git/trees",
+        token=token,
+        json={
+            "base_tree": parent["tree"]["sha"],
+            "tree": [
+                {
+                    "path": "modelo_jugadores.joblib",
+                    "mode": "100644",
+                    "type": "blob",
+                    "sha": blob["sha"],
+                }
+            ],
+        },
+    ).json()
+    commit = github_request(
+        "POST",
+        f"/repos/{repository}/git/commits",
+        token=token,
+        json={
+            "message": "Update trained player similarity model",
+            "tree": tree["sha"],
+            "parents": [parent_sha],
+        },
+    ).json()
+    github_request(
+        "PATCH",
+        f"/repos/{repository}/git/refs/heads/{branch}",
+        token=token,
+        json={"sha": commit["sha"], "force": False},
+    )
+    return commit["sha"]
 
 st.set_page_config(page_title="Similitud de jugadores", page_icon="⚽", layout="wide")
 st.title("Similitud de jugadores")
 st.caption("WhoScored · Consulta perfiles y actualiza el modelo con nuevos datos")
 
 
-def read_artifact():
-    if not MODEL_PATH.exists():
-        return None
+def read_artifact(settings):
     try:
-        return load_model(MODEL_PATH)
-    except Exception as exc:  # archivo corrupto o creado con versión incompatible
-        st.error(f"No pude cargar el modelo en `{MODEL_PATH}`: {exc}")
-        return None
+        commit_sha = latest_model_commit(
+            settings["repository"], settings["model_branch"], settings["token"]
+        )
+        model = load_remote_artifact(settings["repository"], commit_sha, settings["token"])
+        return model, commit_sha, None
+    except Exception as exc:
+        return None, None, str(exc)
 
 
-artifact = read_artifact()
+settings = github_settings()
+artifact, artifact_sha, artifact_error = read_artifact(settings)
 page = st.sidebar.radio(
     "Módulo",
     ["Consultar similitudes", "Reentrenar modelo"],
-    help="La consulta usa el modelo actual. El reentrenamiento reemplaza el archivo local del modelo.",
+    help="La consulta usa el último artefacto de GitHub. El reentrenamiento publica una nueva versión en la rama model-artifacts.",
 )
 
 
 if page == "Consultar similitudes":
     st.header("Buscar jugadores similares")
     if artifact is None:
-        st.warning("No hay un modelo disponible. Ve a **Reentrenar modelo** y carga un CSV para generarlo.")
+        st.error(f"No pude cargar el modelo desde GitHub: {artifact_error}")
+        st.warning("Comprueba que exista la rama `model-artifacts` y que contenga `modelo_jugadores.joblib`.")
         st.stop()
 
     field_records = artifact["profiles"]["field"]["records"]
@@ -129,6 +259,7 @@ if page == "Consultar similitudes":
 
     with st.expander("Información del modelo"):
         st.write(f"Apariciones incluidas: {artifact['source_rows']:,}")
+        st.write(f"Versión GitHub: `{artifact_sha[:12]}` · rama `{settings['model_branch']}`")
         st.write(f"Métricas de campo: {len(artifact['profiles']['field']['features'])}")
         st.write(f"Métricas de portero: {len(artifact['profiles']['goalkeeper']['features'])}")
         st.write("Los filtros de resultados no requieren reentrenar el modelo.")
@@ -136,9 +267,22 @@ if page == "Consultar similitudes":
 
 else:
     st.header("Cargar datos y reentrenar")
+    admin_password = settings["admin_password"]
+    if not admin_password:
+        st.error("El módulo de reentrenamiento está bloqueado. Configura [admin].password en Streamlit Secrets.")
+        st.stop()
+    if not st.session_state.get("admin_authenticated", False):
+        entered_password = st.text_input("Contraseña de administrador", type="password")
+        if st.button("Desbloquear módulo"):
+            if hmac.compare_digest(entered_password, admin_password):
+                st.session_state["admin_authenticated"] = True
+                st.rerun()
+            st.error("Contraseña incorrecta.")
+        st.stop()
+
     st.write(
         "Carga el CSV actualizado. La aplicación ajustará de nuevo los perfiles de campo y portero, "
-        "guardará el artefacto y te permitirá descargarlo."
+        "publicará el artefacto en GitHub y te permitirá descargar una copia."
     )
     uploaded = st.file_uploader("CSV de jugadores", type=["csv"], help="Debe conservar las columnas del dataset WhoScored.")
 
@@ -157,21 +301,27 @@ else:
             st.write("**Métricas de campo:** " + ", ".join(FIELD_FEATURES))
             st.write("**Métricas de portero:** " + ", ".join(GOALKEEPER_FEATURES))
 
-    if uploaded is not None and st.button("Reentrenar y exportar modelo", type="primary"):
+    if uploaded is not None and st.button("Reentrenar y publicar modelo", type="primary"):
         try:
-            MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryDirectory() as tmp_dir:
                 csv_path = Path(tmp_dir) / "jugadores.csv"
                 staged_model = Path(tmp_dir) / "modelo_jugadores.joblib"
                 csv_path.write_bytes(uploaded.getvalue())
                 new_artifact = train_model(csv_path, staged_model)
-                os.replace(staged_model, MODEL_PATH)
-
-            st.session_state["trained_model_bytes"] = MODEL_PATH.read_bytes()
-            st.session_state["trained_model_name"] = MODEL_PATH.name
+                commit_sha = publish_model_to_github(
+                    staged_model,
+                    settings["repository"],
+                    settings["model_branch"],
+                    settings["token"],
+                )
+                st.session_state["trained_model_bytes"] = staged_model.read_bytes()
+            st.session_state["trained_model_name"] = "modelo_jugadores.joblib"
+            st.session_state["latest_model_sha"] = commit_sha
+            st.session_state["latest_model_artifact"] = new_artifact
             st.success(
                 f"Modelo actualizado: {new_artifact['source_rows']:,} apariciones, "
-                f"{len(new_artifact['leagues'])} ligas y {len(new_artifact['positions'])} posiciones."
+                f"{len(new_artifact['leagues'])} ligas y {len(new_artifact['positions'])} posiciones. "
+                f"Publicado en `{settings['model_branch']}` ({commit_sha[:12]})."
             )
         except Exception as exc:
             st.error(f"No se pudo reentrenar el modelo: {exc}")
@@ -184,12 +334,10 @@ else:
             mime="application/octet-stream",
             type="secondary",
         )
-        st.caption(f"Artefacto guardado en `{MODEL_PATH}` para que lo use el módulo de consulta.")
+        st.caption("El módulo de consulta carga automáticamente el artefacto más reciente desde GitHub.")
 
-    if artifact is not None:
-        st.info(f"Modelo actualmente cargado: {artifact['source_rows']:,} apariciones · {len(artifact['leagues'])} ligas.")
+    current_artifact = st.session_state.get("latest_model_artifact", artifact)
+    if current_artifact is not None:
+        st.info(f"Modelo actual: {current_artifact['source_rows']:,} apariciones · {len(current_artifact['leagues'])} ligas.")
 
-    st.warning(
-        "En alojamientos efímeros, como Streamlit Community Cloud, los archivos locales pueden perderse al reiniciar o desplegar. "
-        "Descarga y conserva el `.joblib` generado; para usarlo en otro despliegue, reemplaza el artefacto del repositorio."
-    )
+    st.caption(f"Repositorio: `{settings['repository']}` · rama de artefactos: `{settings['model_branch']}`")

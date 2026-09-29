@@ -1,14 +1,14 @@
 # WhoScored: similitud de jugadores
 
-App de Streamlit para consultar jugadores similares y reentrenar/exportar el modelo desde un CSV actualizado.
+App de Streamlit para consultar jugadores similares y reentrenar el modelo desde un CSV actualizado.
 
-## Iniciar
+## Iniciar la app
 
 ```bash
 python -m pip install -r requirements.txt
 streamlit run streamlit_app.py
 ```
 
-Consulta [README_streamlit.md](README_streamlit.md) para el uso de los dos módulos y [README_modelo_similitud.md](README_modelo_similitud.md) para el flujo de entrenamiento y la interfaz Python.
+Configura un token GitHub (Contents: read/write) y una contraseña de administrador en Streamlit Secrets. La app guarda artefactos nuevos en la rama `model-artifacts` y carga la versión más reciente desde allí. Nunca agregues secretos al repositorio.
 
-El archivo `modelo_jugadores.joblib` es el artefacto de muestra. La app permite sustituirlo mediante el CSV actualizado.
+Consulta [README_streamlit.md](README_streamlit.md) para la configuración y [README_modelo_similitud.md](README_modelo_similitud.md) para los perfiles y la interfaz Python.
